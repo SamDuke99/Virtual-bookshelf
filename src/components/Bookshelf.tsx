@@ -29,6 +29,7 @@ import {
   Color,
 } from "three";
 import { Book as StoreBook } from "../types";
+import BookDetailsModal from "./BookDetailsModal";
 
 interface SceneBook {
   id: string;
@@ -89,6 +90,8 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
   const [scene] = useState(() => new Scene());
   const [camera] = useState(() => new PerspectiveCamera(75, 1, 0.1, 1000));
   const [shelfBooks, setShelfBooks] = useState<SceneBook[]>([]);
+  const [selectedBook, setSelectedBook] = useState<StoreBook | null>(null);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const raycaster = useRef(new Raycaster());
   const mouse = useRef(new Vector2());
 
@@ -285,6 +288,11 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
 
       if (clickedBook) {
         console.log("Clicked book:", clickedBook.title);
+        const storeBook = storeBooks.find((book) => book.id === clickedBook.id);
+        if (storeBook) {
+          setSelectedBook(storeBook);
+          setIsModalVisible(true);
+        }
       }
     }
   };
@@ -347,6 +355,14 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
           activeOpacity={1}
         />
       </View>
+      <BookDetailsModal
+        book={selectedBook}
+        visible={isModalVisible}
+        onClose={() => {
+          setIsModalVisible(false);
+          setSelectedBook(null);
+        }}
+      />
     </View>
   );
 }
