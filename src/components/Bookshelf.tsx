@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import { GLView } from "expo-gl";
 import { Renderer } from "expo-three";
-import ImageColors from "react-native-image-colors";
 import {
   Scene,
   PerspectiveCamera,
@@ -29,6 +28,7 @@ import {
   Color,
 } from "three";
 import { Book as StoreBook } from "../types";
+import Canvas from "react-native-canvas";
 
 interface SceneBook {
   id: string;
@@ -44,41 +44,25 @@ interface BookshelfProps {
   books?: StoreBook[];
 }
 
-const colorCache: { [key: string]: string } = {};
-
-const extractColorFromCover = async (coverUrl: string): Promise<string> => {
-  if (colorCache[coverUrl]) {
-    return colorCache[coverUrl];
-  }
-
-  try {
-    const secureUrl = coverUrl.replace("http://", "https://");
-    const result = await ImageColors.getColors(secureUrl, {
-      fallback: "#8b4513",
-      cache: true,
-      key: secureUrl,
-      quality: "highest",
-    });
-
-    let dominantColor = "#8b4513";
-
-    switch (result.platform) {
-      case "android":
-        dominantColor = result.dominant || result.vibrant || "#8b4513";
-        break;
-      case "ios":
-        dominantColor = result.primary || result.background || "#8b4513";
-        break;
-      default:
-        dominantColor = result.dominant || "#8b4513";
-    }
-
-    colorCache[coverUrl] = dominantColor;
-    return dominantColor;
-  } catch (error) {
-    console.error("Error extracting color:", error);
-    return "#8b4513";
-  }
+const extractColorFromCover = (coverUrl: string): string => {
+  const colors = [
+    "#FF6B6B", // Coral Red
+    "#4ECDC4", // Turquoise
+    "#45B7D1", // Sky Blue
+    "#96CEB4", // Sage Green
+    "#FFEEAD", // Cream Yellow
+    "#D4A5A5", // Dusty Rose
+    "#9B59B6", // Purple
+    "#3498DB", // Blue
+    "#E67E22", // Orange
+    "#2ECC71", // Green
+    "#F1C40F", // Yellow
+    "#E74C3C", // Red
+    "#1ABC9C", // Teal
+    "#34495E", // Dark Blue
+    "#8B4513", // Brown
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
 };
 
 export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
@@ -106,14 +90,14 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
       flatShading: true,
     });
 
-    const backGeometry = new BoxGeometry(2.2, 3.3, 0.11);
+    const backGeometry = new BoxGeometry(2.2, 2.4, 0.11);
     const backPanel = new Mesh(backGeometry, woodMaterial);
     backPanel.position.z = -0.55;
     backPanel.castShadow = true;
     backPanel.receiveShadow = true;
     group.add(backPanel);
 
-    const sideGeometry = new BoxGeometry(0.11, 3.3, 0.55);
+    const sideGeometry = new BoxGeometry(0.11, 2.4, 0.55);
     const leftSide = new Mesh(sideGeometry, woodMaterial);
     leftSide.position.x = -1.1;
     leftSide.position.z = -0.22;
@@ -131,7 +115,7 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
     const shelfGeometry = new BoxGeometry(2.2, 0.11, 0.55);
     for (let i = 0; i < 3; i++) {
       const shelf = new Mesh(shelfGeometry, woodMaterial);
-      shelf.position.y = 1.1 - i * 1.1;
+      shelf.position.y = 0.8 - i * 0.8;
       shelf.position.z = -0.22;
       shelf.castShadow = true;
       shelf.receiveShadow = true;
@@ -142,11 +126,34 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
   });
 
   const createTextTexture = (text: string) => {
+    const canvas = new Canvas(512, 512);
+    const ctx = canvas.getContext("2d");
+
+    // Set background
+    ctx.fillStyle = "#8b4513";
+    ctx.fillRect(0, 0, 512, 512);
+
+    // Set text properties
+    ctx.fillStyle = "white";
+    ctx.font = "bold 48px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // Save context state
+    ctx.save();
+
+    // Rotate and draw text
+    ctx.translate(256, 256);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillText(text, 0, 0);
+
+    // Restore context state
+    ctx.restore();
+
     return new MeshStandardMaterial({
-      color: 0x000000,
+      map: new CanvasTexture(canvas),
       roughness: 0.8,
       metalness: 0.1,
-      flatShading: true,
     });
   };
 
@@ -209,15 +216,15 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
       return;
     }
 
-    const coverColor = await extractColorFromCover(book.coverUrl);
+    const coverColor = extractColorFromCover(book.coverUrl);
     console.log("Extracted cover color:", coverColor);
 
     console.log("Creating book...");
     const bookGroup = new Group();
 
-    const BOOK_WIDTH = 0.4;
+    const BOOK_WIDTH = 0.5;
     const BOOK_HEIGHT = 0.6;
-    const BOOK_DEPTH = 0.1;
+    const BOOK_DEPTH = 0.15;
 
     const coverMaterial = new MeshStandardMaterial({
       color: new Color(coverColor),
@@ -241,8 +248,11 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
     bookMesh.receiveShadow = true;
     bookGroup.add(bookMesh);
 
-    const xPosition = -0.9 + booksOnShelf * (BOOK_WIDTH + 0.1);
-    const yPosition = 0.8;
+    // Rotate the book to show spine
+    bookMesh.rotation.y = Math.PI / 2;
+
+    const xPosition = -0.9 + booksOnShelf * (BOOK_WIDTH + 0.05);
+    const yPosition = 0.6; // Adjusted to match new shelf height
     const zPosition = -0.22;
 
     bookGroup.position.set(xPosition, yPosition, zPosition);
@@ -252,7 +262,7 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
       title: book.title,
       shelfIndex: 0,
       position: new Vector3(xPosition, yPosition, zPosition),
-      rotation: new Vector3(0, 0, 0),
+      rotation: new Vector3(0, Math.PI / 2, 0),
       mesh: bookGroup,
       coverColour: coverColor,
     };
@@ -346,6 +356,24 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
           onPress={handleTap}
           activeOpacity={1}
         />
+        {shelfBooks.map((book) => {
+          const screenPos = getScreenPosition(book.position);
+          return (
+            <Text
+              key={book.id}
+              style={[
+                styles.bookTitle,
+                {
+                  left: screenPos.x,
+                  top: screenPos.y,
+                  transform: [{ rotate: "90deg" }],
+                },
+              ]}
+            >
+              {book.title}
+            </Text>
+          );
+        })}
       </View>
     </View>
   );
@@ -358,5 +386,16 @@ const styles = StyleSheet.create({
   },
   glView: {
     flex: 1,
+  },
+  bookTitle: {
+    position: "absolute",
+    color: "white",
+    backgroundColor: "#8b4513",
+    padding: 4,
+    fontSize: 12,
+    fontWeight: "bold",
+    textAlign: "center",
+    width: 120,
+    transform: [{ translateX: -60 }, { translateY: -10 }],
   },
 });
