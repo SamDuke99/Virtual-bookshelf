@@ -7,6 +7,9 @@ import {
   Dimensions,
   Image,
   Platform,
+  Modal,
+  Pressable,
+  PanResponder,
 } from "react-native";
 import { GLView } from "expo-gl";
 import { Renderer } from "expo-three";
@@ -23,8 +26,6 @@ import {
   DirectionalLight,
   Raycaster,
   Object3D,
-  TextureLoader,
-  CanvasTexture,
   Color,
 } from "three";
 import { Book as StoreBook } from "../types";
@@ -46,21 +47,21 @@ interface BookshelfProps {
 
 const extractColorFromCover = (coverUrl: string): string => {
   const colors = [
-    "#FF6B6B", // Coral Red
-    "#4ECDC4", // Turquoise
-    "#45B7D1", // Sky Blue
-    "#96CEB4", // Sage Green
-    "#FFEEAD", // Cream Yellow
-    "#D4A5A5", // Dusty Rose
-    "#9B59B6", // Purple
-    "#3498DB", // Blue
-    "#E67E22", // Orange
-    "#2ECC71", // Green
-    "#F1C40F", // Yellow
-    "#E74C3C", // Red
-    "#1ABC9C", // Teal
-    "#34495E", // Dark Blue
-    "#8B4513", // Brown
+    "#FF6B6B",
+    "#4ECDC4",
+    "#45B7D1",
+    "#96CEB4",
+    "#FFEEAD",
+    "#D4A5A5",
+    "#9B59B6",
+    "#3498DB",
+    "#E67E22",
+    "#2ECC71",
+    "#F1C40F",
+    "#E74C3C",
+    "#1ABC9C",
+    "#34495E",
+    "#8B4513",
   ];
   return colors[Math.floor(Math.random() * colors.length)];
 };
@@ -75,6 +76,13 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
   const [shelfBooks, setShelfBooks] = useState<SceneBook[]>([]);
   const raycaster = useRef(new Raycaster());
   const mouse = useRef(new Vector2());
+  const [selectedBook, setSelectedBook] = useState<StoreBook | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const lastX = useRef(0);
+  const isDragging = useRef(false);
+  const targetRotation = useRef(0);
+  const currentRotation = useRef(0);
 
   useEffect(() => {
     console.log("Bookshelf component mounted");
@@ -124,38 +132,6 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
 
     return group;
   });
-
-  const createTextTexture = (text: string) => {
-    const canvas = new Canvas(512, 512);
-    const ctx = canvas.getContext("2d");
-
-    // Set background
-    ctx.fillStyle = "#8b4513";
-    ctx.fillRect(0, 0, 512, 512);
-
-    // Set text properties
-    ctx.fillStyle = "white";
-    ctx.font = "bold 48px Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    // Save context state
-    ctx.save();
-
-    // Rotate and draw text
-    ctx.translate(256, 256);
-    ctx.rotate(Math.PI / 2);
-    ctx.fillText(text, 0, 0);
-
-    // Restore context state
-    ctx.restore();
-
-    return new MeshStandardMaterial({
-      map: new CanvasTexture(canvas),
-      roughness: 0.8,
-      metalness: 0.1,
-    });
-  };
 
   useEffect(() => {
     console.log("=== Bookshelf Component ===");
@@ -232,7 +208,11 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
       metalness: 0.1,
     });
 
-    const spineMaterial = createTextTexture(book.title);
+    const spineMaterial = new MeshStandardMaterial({
+      color: new Color(coverColor).multiplyScalar(0.8),
+      roughness: 0.7,
+      metalness: 0.1,
+    });
 
     const bookGeometry = new BoxGeometry(BOOK_WIDTH, BOOK_HEIGHT, BOOK_DEPTH);
     const bookMesh = new Mesh(bookGeometry, [
@@ -248,11 +228,11 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
     bookMesh.receiveShadow = true;
     bookGroup.add(bookMesh);
 
-    // Rotate the book to show spine
+    // Set initial book rotation
     bookMesh.rotation.y = Math.PI / 2;
 
     const xPosition = -0.9 + booksOnShelf * (BOOK_WIDTH + 0.05);
-    const yPosition = 0.6; // Adjusted to match new shelf height
+    const yPosition = 1.1;
     const zPosition = -0.22;
 
     bookGroup.position.set(xPosition, yPosition, zPosition);
@@ -267,16 +247,61 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
       coverColour: coverColor,
     };
 
-    scene.add(bookGroup);
+    bookshelf.add(bookGroup);
     setShelfBooks((prev) => [...prev, sceneBook]);
   };
 
   const removeBook = (book: SceneBook) => {
     scene.remove(book.mesh);
+
+    const booksToShift = shelfBooks.filter(
+      (b) => b.shelfIndex === book.shelfIndex && b.position.x > book.position.x
+    );
+
+    const BOOK_WIDTH = 0.5;
+    const BOOK_SPACING = 0.05;
+    const shiftAmount = -(BOOK_WIDTH + BOOK_SPACING);
+
+    booksToShift.forEach((bookToShift) => {
+      bookToShift.position.x += shiftAmount;
+      bookToShift.mesh.position.x += shiftAmount;
+    });
+
     setShelfBooks((prev) => prev.filter((b) => b.id !== book.id));
   };
 
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        lastX.current = evt.nativeEvent.locationX;
+        isDragging.current = true;
+      },
+      onPanResponderMove: (evt) => {
+        if (!isDragging.current) return;
+
+        const currentX = evt.nativeEvent.locationX;
+        const delta = currentX - lastX.current;
+
+        const rotationDelta = delta * 0.005;
+
+        targetRotation.current = Math.max(
+          -0.52,
+          Math.min(0.52, targetRotation.current + rotationDelta)
+        );
+
+        lastX.current = currentX;
+      },
+      onPanResponderRelease: () => {
+        isDragging.current = false;
+        targetRotation.current = 0;
+      },
+    })
+  ).current;
+
   const handleTap = (event: any) => {
+    if (isDragging.current) return;
     const { locationX, locationY } = event.nativeEvent;
     const { width, height } = Dimensions.get("window");
 
@@ -294,7 +319,11 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
       );
 
       if (clickedBook) {
-        console.log("Clicked book:", clickedBook.title);
+        const storeBook = storeBooks.find((book) => book.id === clickedBook.id);
+        if (storeBook) {
+          setSelectedBook(storeBook);
+          setModalVisible(true);
+        }
       }
     }
   };
@@ -331,6 +360,16 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
       const now = Date.now();
       const deltaTime = now - lastTime;
       lastTime = now;
+
+      const rotationDiff = targetRotation.current - currentRotation.current;
+      if (Math.abs(rotationDiff) > 0.001) {
+        currentRotation.current += rotationDiff * 0.1;
+
+        scene.rotation.y = currentRotation.current;
+
+        setRotation(currentRotation.current);
+      }
+
       renderer.render(scene, camera);
       gl.endFrameEXP();
     };
@@ -339,18 +378,33 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
 
   const getScreenPosition = (position: Vector3) => {
     const vector = position.clone();
+
+    const rotatedPosition = position.clone();
+    rotatedPosition.applyAxisAngle(new Vector3(0, 1, 0), rotation);
+    vector.copy(rotatedPosition);
+
     vector.project(camera);
 
     const x = ((vector.x + 1) / 2) * Dimensions.get("window").width;
     const y = (-(vector.y - 1) / 2) * Dimensions.get("window").height;
 
-    return { x, y };
+    const booksOnShelf = shelfBooks.filter((b) => b.shelfIndex === 0);
+    const bookIndex = booksOnShelf.findIndex(
+      (b) => b.position.x === position.x
+    );
+
+    const xOffset = -37.5 + bookIndex * 5;
+
+    return {
+      x: x + xOffset,
+      y: y - 22.5,
+    };
   };
 
   return (
     <View style={styles.container}>
       <GLView style={styles.glView} onContextCreate={onContextCreate} />
-      <View style={StyleSheet.absoluteFill}>
+      <View style={StyleSheet.absoluteFill} {...panResponder.panHandlers}>
         <TouchableOpacity
           style={StyleSheet.absoluteFill}
           onPress={handleTap}
@@ -361,12 +415,14 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
           return (
             <Text
               key={book.id}
+              numberOfLines={1}
+              adjustsFontSizeToFit={true}
               style={[
                 styles.bookTitle,
                 {
                   left: screenPos.x,
                   top: screenPos.y,
-                  transform: [{ rotate: "90deg" }],
+                  transform: [{ rotate: "-90deg" }],
                 },
               ]}
             >
@@ -375,6 +431,39 @@ export default function Bookshelf({ books: storeBooks = [] }: BookshelfProps) {
           );
         })}
       </View>
+
+      <Modal
+        animationType='slide'
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.centeredView}>
+          <View style={styles.modalView}>
+            {selectedBook && (
+              <>
+                <Text style={styles.modalTitle}>{selectedBook.title}</Text>
+                <Text style={styles.modalText}>
+                  By {selectedBook.authors.join(", ")}
+                </Text>
+
+                {selectedBook.coverUrl && (
+                  <Image
+                    source={{ uri: selectedBook.coverUrl }}
+                    style={styles.coverImage}
+                  />
+                )}
+              </>
+            )}
+            <Pressable
+              style={styles.closeButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -390,12 +479,68 @@ const styles = StyleSheet.create({
   bookTitle: {
     position: "absolute",
     color: "white",
-    backgroundColor: "#8b4513",
-    padding: 4,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "bold",
     textAlign: "center",
-    width: 120,
-    transform: [{ translateX: -60 }, { translateY: -10 }],
+    width: 60,
+    transform: [{ rotate: "-90deg" }],
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalView: {
+    margin: 20,
+    backgroundColor: "white",
+    borderRadius: 20,
+    padding: 35,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    width: "80%",
+    maxHeight: "80%",
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  modalText: {
+    fontSize: 16,
+    marginBottom: 15,
+    textAlign: "center",
+  },
+  modalDescription: {
+    fontSize: 14,
+    marginBottom: 15,
+    textAlign: "left",
+  },
+  coverImage: {
+    width: 200,
+    height: 300,
+    marginBottom: 15,
+    resizeMode: "contain",
+  },
+  closeButton: {
+    backgroundColor: "#2196F3",
+    borderRadius: 20,
+    padding: 10,
+    elevation: 2,
+    marginTop: 15,
+  },
+  closeButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    textAlign: "center",
+    fontSize: 16,
   },
 });
